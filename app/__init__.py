@@ -1,22 +1,26 @@
-from flask import Flask
-from flask_sqlalchemy import SQLAlchemy
-from flask_migrate import Migrate
-from flask_login import LoginManager
+from app import create_app, db
+from app.models import User
 
-db = SQLAlchemy()
-migrate = Migrate()
-login_manager = LoginManager()
+def crear_admin():
+    username = "admin"
+    email = "admin@example.com"
+    password = "admin123"
 
-def create_app():
-    app = Flask(__name__)
-    app.config.from_object('config.Config')
+    if User.query.filter_by(username=username).first():
+        print("El usuario admin ya existe.")
+        return
 
-    db.init_app(app)
-    migrate.init_app(app, db)
-    login_manager.init_app(app)
-    login_manager.login_view = 'main.login'
+    admin = User(username=username, email=email)
+    admin.set_password(password)
+    db.session.add(admin)
+    db.session.commit()
+    print("Usuario admin creado correctamente.")
 
-    from .routes import main as main_blueprint
-    app.register_blueprint(main_blueprint)
+app = create_app()
 
-    return app
+if __name__ == "__main__":
+    # Create admin inside app context
+    with app.app_context():
+        crear_admin()
+
+    app.run(host="0.0.0.0", port=5000)
