@@ -50,8 +50,5 @@ class Ticket(db.Model):
     # CORREGIDO: back_pop -> back_populates
     event = db.relationship('Event', back_populates='tickets')
     user = db.relationship('User', back_populates='tickets')
-```eof
 
-Por favor, reemplaza el contenido de tu `app/models.py` con este.
 
-**Recordatorio importante:** Como esto es un cambio en la estructura de la base de datos, ¡no olvides **detener el servidor y eliminar tu archivo `app.db`** (o `data.db`) antes de volver a correr `python run.py`!
