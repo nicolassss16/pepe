@@ -6,36 +6,35 @@ import os
 app = create_app()
 
 def crear_admin():
-    # Usamos el contexto de la aplicación
+    # --- ¡SOLUCIÓN! ---
+    # 1. Usamos el 'contexto' de la app.
+    # Esto le dice a 'db' a qué app de Flask pertenece.
     with app.app_context():
-        # --- BUENA PRÁCTICA ---
-        # Asegura que todas las tablas existan ANTES de crear el admin
+        # 2. Creamos todas las tablas (si no existen)
+        # ESTA LÍNEA CREA LA BASE DE DATOS
         db.create_all()
-        # --------------------
 
         username = 'admin'
         password = 'admin123' # ⚠️ Cambialo para producción
 
+        # 3. Ahora esta consulta puede funcionar
         if User.query.filter_by(username=username).first():
             print("✅ El usuario admin ya existe.")
             return
 
         hashed_password = generate_password_hash(password)
-        
-        # --- CAMBIO IMPORTANTE ---
-        # Le damos el permiso de admin al crearlo
         admin_user = User(username=username, password=hashed_password, is_admin=True)
-        # ------------------------
-        
         db.session.add(admin_user)
         db.session.commit()
         print(f"✅ Usuario '{username}' creado con contraseña '{password}' y permisos de admin.")
 
+# Este bloque solo se ejecuta cuando corres `python run.py`
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    
-    # Llama a la función ANTES de correr la app
+
+    # 4. Llamamos a la función AQUÍ, justo antes de correr el servidor.
     crear_admin()
 
     # Ponemos debug=True para ver errores en el navegador
     app.run(host='0.0.0.0', port=port, debug=True)
+
