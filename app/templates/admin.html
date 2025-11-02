@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale-1.0">
+  <title>Panel de Administración - QRPASS</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+  <style>
+    body {
+      font-family: 'Roboto', sans-serif;
+      background: #f4f6f8;
+      color: #333;
+      margin: 0;
+      padding: 20px;
+    }
+
+    h1, h2 {
+      color: #2c3e50;
+      text-align: center;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: auto;
+    }
+    
+    a {
+      color: #3f37c9;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .alert {
+      padding: 15px;
+      margin-bottom: 20px;
+      border-radius: 8px;
+      font-weight: 500;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .success { background-color: #d1fae5; color: #065f46; border: 1px solid #34d399; }
+    .error { background-color: #fee2e2; color: #b91c1c; border: 1px solid #f87171; }
+    
+    .alert-close {
+        background: none;
+        border: none;
+        font-size: 1.2rem;
+        cursor: pointer;
+        opacity: 0.7;
+    }
+    .alert-close:hover { opacity: 1; }
+
+    form {
+      gap: 10px;
+      margin-bottom: 30px;
+    }
+    
+    .form-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr auto;
+        gap: 10px;
+        align-items: flex-end;
+    }
+    
+    .form-group {
+        display: flex;
+        flex-direction: column;
+    }
+    .form-group label {
+        font-size: 0.875rem;
+        font-weight: 500;
+        margin-bottom: 4px;
+        color: #4a5568;
+    }
+
+    input[type="text"], input[type="number"] {
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      width: 100%;
+      box-sizing: border-box; /* Importante */
+    }
+
+    button {
+      padding: 10px 16px;
+      background: #3f37c9;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      height: 40px; /* Alinea con inputs */
+    }
+
+    button:hover {
+      background: #3641b3;
+    }
+    
+    button.btn-danger {
+        background: #e11d48;
+    }
+    button.btn-danger:hover {
+        background: #be123c;
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+      margin-bottom: 30px;
+    }
+
+    .card h2 {
+      margin-top: 0;
+      margin-bottom: 20px;
+      border-bottom: 1px solid #ddd;
+      padding-bottom: 10px;
+    }
+    
+    .item-list {
+        border-collapse: collapse;
+        width: 100%;
+    }
+    .item-list th, .item-list td {
+        padding: 12px;
+        border-bottom: 1px solid #f0f0f0;
+        text-align: left;
+    }
+    .item-list th {
+        font-size: 0.9rem;
+        color: #4a5568;
+        text-transform: uppercase;
+    }
+    .item-list tr:last-child td {
+        border-bottom: none;
+    }
+
+    .status {
+      font-weight: bold;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 0.9em;
+    }
+
+    .usado { background-color: #fde68a; color: #92400e; }
+    .no-usado { background-color: #c6f6d5; color: #22543d; }
+
+    .badge {
+      font-size: 0.85em;
+      background: #e2e8f0;
+      color: #4a5568;
+      padding: 4px 8px;
+      border-radius: 6px;
+    }
+
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Panel de Administración</h1>
+    <p style="text-align: center;"><a href="{{ url_for('main.index') }}">&larr; Volver al inicio</a></p>
+
+    <!-- Manejo de flashes (mensajes) -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert {{ category }}">
+            <span>{{ message }}</span>
+            <button class="alert-close" onclick="this.parentElement.style.display='none'">&times;</button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <!-- Formulario para agregar evento -->
+    <div class="card">
+      <h2>Agregar Evento</h2>
+      <form method="POST" action="{{ url_for('main.add_event') }}" class="form-grid">
+        {{ form.csrf_token }}
+        <div class="form-group">
+            <label for="name">Nombre del Evento</label>
+            <input id="name" type="text" name="name" placeholder="Ej: Fiesta Anual" required>
+        </div>
+        <div class="form-group">
+            <label for="price">Precio ($)</label>
+            <input id="price" type="number" name="price" min="0" step="0.01" placeholder="Ej: 1500" required>
+        </div>
+        <div class="form-group">
+            <label for="available_tickets">Tickets Disponibles</label>
+            <input id="available_tickets" type="number" name="available_tickets" min="0" step="1" placeholder="Ej: 100" required>
+        </div>
+        <button type="submit"><i class="fas fa-plus"></i> Agregar</button>
+      </form>
+    </div>
+
+    <!-- Lista de Eventos -->
+    <div class="card">
+      <h2>Eventos Creados</h2>
+      {% if not events %}
+        <p style="text-align:center;color:#888;">Sin eventos registrados.</p>
+      {% else %}
+        <table class="item-list">
+            <thead>
+                <tr>
+                    <th>Nombre</th>
+                    <th>Precio</th>
+                    <th>Disponibles</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for event in events %}
+                  <tr>
+                    <td><strong>{{ event.name }}</strong></td>
+                    <td>${{ "%.2f"|format(event.price) }}</td>
+                    <td>{{ event.available_tickets }}</td>
+                    <td>
+                        <!-- Formulario para eliminar (más seguro que un link) -->
+                        <form method="POST" action="{{ url_for('main.delete_event', event_id=event.id) }}" style="margin:0;">
+                            {{ form.csrf_token }}
+                            <button type="submit" class="btn-danger" onclick="return confirm('¿Estás seguro de que quieres eliminar este evento?');">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </form>
+                    </td>
+                  </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+      {% endif %}
+    </div>
+
+    <!-- Lista de Tickets -->
+    <div class="card">
+      <h2>Últimos Tickets Vendidos</h2>
+      {% if not tickets %}
+        <p style="text-align:center;color:#888;">Sin tickets registrados.</p>
+      {% else %}
+        <table class="item-list">
+            <thead>
+                <tr>
+                    <th>Comprador</th>
+                    <th>Evento</th>
+                    <th>Estado</th>
+                    <th>ID Transacción</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ticket in tickets %}
+                  <tr>
+                    <td><strong>{{ ticket.name }}</strong></td>
+                    <td>{{ ticket.event.name if ticket.event else 'Evento Desconocido' }}</td>
+                    <td>
+                        <span class="status {{ 'usado' if ticket.usado else 'no-usado' }}">
+                          {{ 'Usado' if ticket.usado else 'No usado' }}
+                        </span>
+                    </td>
+                    <td><small>{{ ticket.transaction_id }}</small></td>
+                  </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+      {% endif %}
+    </div>
+  </div>
+</body>
+</html>
+

@@ -1,0 +1,262 @@
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
+from flask_login import login_user, logout_user, current_user, login_required
+from werkzeug.security import check_password_hash, generate_password_hash
+from .models import db, Event, Ticket, User
+from . import login_manager
+import qrcode
+from io import BytesIO
+import base64
+from uuid import uuid4
+from flask_wtf import FlaskForm # Asegúrate que esto esté importado
+
+main = Blueprint('main', __name__)
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+# --- Públicas: index, registro, login/logout ---
+@main.route('/')
+def index():
+    events = Event.query.all()
+    form = FlaskForm() # Crea una instancia del formulario
+    # Pasa el 'form' al render_template
+    return render_template('index.html', events=events, form=form)
+
+@main.route('/mis_tickets')
+@login_required
+def mis_tickets():
+    tickets = Ticket.query.filter_by(user_id=current_user.id).all()
+    return render_template('mis_tickets.html', tickets=tickets)
+
+@main.route('/register', methods=['GET', 'POST'])
+def register():
+    form = FlaskForm() # Crea el formulario
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        if not username or not password:
+            flash('Todos los campos son obligatorios.', 'error')
+            return redirect(url_for('main.register'))
+        if User.query.filter_by(username=username).first():
+            flash('Este usuario ya está registrado.', 'error')
+            return redirect(url_for('main.register'))
+        
+        hashed = generate_password_hash(password)
+        user = User(username=username, password=hashed)
+        db.session.add(user); db.session.commit()
+        flash('✅ Registro exitoso. Ahora podés iniciar sesión.', 'success')
+        return redirect(url_for('main.login'))
+    
+    return render_template('register.html', form=form) # Pásalo al template
+
+@main.route('/login', methods=['GET', 'POST'])
+def login():
+    form = FlaskForm() # Crea el formulario
+    if request.method == 'POST':
+        u = request.form['username']
+        p = request.form['password']
+        user = User.query.filter_by(username=u).first()
+        
+        if user and check_password_hash(user.password, p):
+            login_user(user)
+            flash('Sesión iniciada', 'success')
+            
+            # --- ARREGLO DE REDIRECCIÓN ---
+            # Si hay un parámetro 'next' en la URL, redirige ahí.
+            next_page = request.args.get('next')
+            if next_page:
+                return redirect(next_page)
+            # Si no, a la página de inicio.
+            return redirect(url_for('main.index'))
+            # ------------------------------
+            
+        flash('Usuario o contraseña incorrectos', 'error')
+    
+    return render_template('login.html', form=form) # Pásalo al template
+
+@main.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    flash('Sesión cerrada', 'success')
+    return redirect(url_for('main.index'))
+
+# --- Compra de tickets ---
+@main.route('/purchase', methods=['POST'])
+def purchase_ticket():
+    name = request.form.get('name')
+    event_id = request.form.get('event')
+    quantity = request.form.get('quantity')
+    
+    if not name or not event_id or not quantity:
+        flash('Todos los campos son obligatorios (Nombre, Evento, Cantidad).', 'error')
+        return redirect(url_for('main.index'))
+    
+    return redirect(url_for('main.checkout', name=name, event_id=event_id, quantity=quantity))
+
+@main.route('/checkout', methods=['GET', 'POST'])
+def checkout():
+    if request.method == 'POST':
+        name = request.form.get('name')
+        event_id = request.form.get('event')
+        quantity = request.form.get('quantity')
+    else: # GET
+        name = request.args.get('name')
+        event_id = request.args.get('event_id')
+        quantity = request.args.get('quantity')
+
+    # Validaciones
+    if not name or not event_id or not quantity:
+        flash('Datos incompletos para el checkout.', 'error')
+        return redirect(url_for('main.index'))
+
+    try:
+        quantity = int(quantity)
+        if quantity <= 0:
+            raise ValueError
+    except ValueError:
+        flash('Cantidad inválida.', 'error')
+        return redirect(url_for('main.index'))
+
+    event = Event.query.get(event_id)
+    if not event:
+        flash('Evento no encontrado.', 'error')
+        return redirect(url_for('main.index'))
+        
+    # Verificar si hay suficientes tickets
+    if event.available_tickets < quantity:
+        flash(f'Lo sentimos, solo quedan {event.available_tickets} tickets disponibles para este evento.', 'error')
+        return redirect(url_for('main.index'))
+
+    return render_template('checkout.html', name=name, event=event, quantity=quantity)
+
+@main.route('/pago_confirmado', methods=['POST'])
+def pago_confirmado():
+    name = request.form['name']
+    event_id = request.form['event_id']
+    quantity = int(request.form['quantity'])
+    payment_method = request.form['payment_method']
+    
+    event = Event.query.get(event_id)
+    
+    if not event or quantity <= 0:
+        flash('Error en la compra.', 'error')
+        return redirect(url_for('main.index'))
+        
+    # --- Descontar tickets ---
+    if event.available_tickets < quantity:
+        flash(f'Lo sentimos, la compra no pudo completarse. Solo quedaban {event.available_tickets} tickets.', 'error')
+        return redirect(url_for('main.index'))
+    
+    event.available_tickets -= quantity
+    # -------------------------
+
+    tx = str(uuid4())
+    for _ in range(quantity):
+        code = str(uuid4())
+        img = qrcode.make(code)
+        buf = BytesIO(); img.save(buf, format="PNG")
+        qr = base64.b64encode(buf.getvalue()).decode()
+        
+        ticket = Ticket(name=name, event_id=event.id, quantity=1,
+                        qr_code=qr, ticket_code=code, transaction_id=tx,
+                        payment_method=payment_method,
+                        user_id=current_user.id if current_user.is_authenticated else None)
+        db.session.add(ticket)
+        
+    db.session.commit() # Guarda los tickets Y la actualización de la cantidad de eventos
+    
+    flash(f'Pago éxitoso por {payment_method}', 'success')
+    return redirect(url_for('main.confirmacion_compra', transaction_id=tx))
+
+@main.route('/confirmacion_compra/<string:transaction_id>')
+def confirmacion_compra(transaction_id):
+    tickets = Ticket.query.filter_by(transaction_id=transaction_id).all()
+    if not tickets:
+        flash('No se encontraron tickets.', 'error')
+        return redirect(url_for('main.index'))
+    return render_template('ticket_multiple.html', tickets=tickets)
+
+@main.route('/ticket/<ticket_code>')
+def ticket(ticket_code):
+    t = Ticket.query.filter_by(ticket_code=ticket_code).first_or_404()
+    return render_template('ticket.html', ticket=t)
+
+# API verificación QR
+@main.route('/verificar')
+def verificar_qr():
+    return render_template('verificar.html')
+
+@main.route('/api/verificar_ticket', methods=['POST'])
+def api_verificar_ticket():
+    qr = request.get_json().get('ticket_id')
+    t = Ticket.query.filter_by(ticket_code=qr).first()
+    
+    if not t:
+        return jsonify({'status':'error','message':'❌ Ticket no encontrado'})
+        
+    info = {'ticket_code':t.ticket_code,'buyer_name':t.name,'event_name':t.event.name,'usado':t.usado}
+    
+    if t.usado:
+        return jsonify({'status':'warning','message':'⚠️ Ticket ya fue usado','ticket_info':info})
+        
+    t.usado = True
+    db.session.commit()
+    return jsonify({'status':'ok','message':f'✅ Bienvenido {t.name}','ticket_info':info})
+
+# --- Administración ---
+@main.route('/admin')
+@login_required
+def admin():
+    form = FlaskForm() # Crea el formulario
+    events = Event.query.all()
+    tickets = Ticket.query.order_by(Ticket.id.desc()).all()
+    return render_template('admin.html', events=events, tickets=tickets, form=form) # PÁSALO
+
+@main.route('/admin/add_event', methods=['POST'])
+@login_required
+def add_event():
+    try:
+        name = request.form.get('name')
+        price = float(request.form.get('price', 0)) # Default a 0 si está vacío
+        available_tickets = int(request.form.get('available_tickets', 100)) # Default a 100
+        
+        if not name:
+            flash('El nombre del evento es requerido', 'error')
+        else:
+            e = Event(name=name, price=price, available_tickets=available_tickets)
+            db.session.add(e)
+            db.session.commit()
+            flash('Evento agregado exitosamente', 'success')
+            
+    except ValueError:
+        flash('Error: El precio y la cantidad deben ser números válidos.', 'error')
+    except Exception as e:
+        flash(f'Error al agregar evento: {str(e)}', 'error')
+        
+    return redirect(url_for('main.admin'))
+
+# --- NUEVA RUTA PARA ELIMINAR ---
+@main.route('/admin/delete_event/<int:event_id>', methods=['POST'])
+@login_required
+def delete_event(event_id):
+    event = Event.query.get_or_404(event_id)
+    try:
+        # Primero, podrías querer verificar si hay tickets vendidos para este evento.
+        # Por ahora, simplemente lo eliminaremos.
+        # Nota: Si tienes tickets vendidos, esto podría fallar si tu DB no está
+        # configurada para eliminar en cascada. 
+        
+        # Opción más segura: Eliminar tickets primero
+        Ticket.query.filter_by(event_id=event.id).delete()
+        
+        # Ahora eliminar el evento
+        db.session.delete(event)
+        db.session.commit()
+        flash(f'Evento "{event.name}" y todos sus tickets asociados fueron eliminados.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error al eliminar evento: {str(e)}', 'error')
+        
+    return redirect(url_for('main.admin'))

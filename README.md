@@ -1,1 +1,1 @@
-# pepe
+# Entradas por QR
