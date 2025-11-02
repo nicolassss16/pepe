@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, abort
 from flask_login import login_user, logout_user, current_user, login_required
 from werkzeug.security import check_password_hash, generate_password_hash
 from .models import db, Event, Ticket, User
@@ -7,9 +7,27 @@ import qrcode
 from io import BytesIO
 import base64
 from uuid import uuid4
-from flask_wtf import FlaskForm # Asegúrate que esto esté importado
+from flask_wtf import FlaskForm
+
+# --- ¡IMPORTANTE! ---
+# Herramienta de Python para crear decoradores
+from functools import wraps
+# --------------------
+
 
 main = Blueprint('main', __name__)
+
+# --- DECORADOR DE ADMINISTRADOR ---
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        # Si el usuario no está logueado O no es admin
+        if not current_user.is_authenticated or not current_user.is_admin:
+            flash('No tenés permiso para acceder a esta página.', 'error')
+            return redirect(url_for('main.index'))
+        return f(*args, **kwargs)
+    return decorated_function
+# ---------------------------------
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -19,8 +37,7 @@ def load_user(user_id):
 @main.route('/')
 def index():
     events = Event.query.all()
-    form = FlaskForm() # Crea una instancia del formulario
-    # Pasa el 'form' al render_template
+    form = FlaskForm() 
     return render_template('index.html', events=events, form=form)
 
 @main.route('/mis_tickets')
@@ -31,7 +48,7 @@ def mis_tickets():
 
 @main.route('/register', methods=['GET', 'POST'])
 def register():
-    form = FlaskForm() # Crea el formulario
+    form = FlaskForm() 
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
@@ -43,16 +60,17 @@ def register():
             return redirect(url_for('main.register'))
         
         hashed = generate_password_hash(password)
+        # Por defecto, is_admin es False (ver models.py)
         user = User(username=username, password=hashed)
         db.session.add(user); db.session.commit()
         flash('✅ Registro exitoso. Ahora podés iniciar sesión.', 'success')
         return redirect(url_for('main.login'))
     
-    return render_template('register.html', form=form) # Pásalo al template
+    return render_template('register.html', form=form) 
 
 @main.route('/login', methods=['GET', 'POST'])
 def login():
-    form = FlaskForm() # Crea el formulario
+    form = FlaskForm() 
     if request.method == 'POST':
         u = request.form['username']
         p = request.form['password']
@@ -62,18 +80,16 @@ def login():
             login_user(user)
             flash('Sesión iniciada', 'success')
             
-            # --- ARREGLO DE REDIRECCIÓN ---
-            # Si hay un parámetro 'next' en la URL, redirige ahí.
             next_page = request.args.get('next')
-            if next_page:
+            # Si el 'next_page' existe Y es seguro (empieza con /), redirige ahí
+            if next_page and next_page.startswith('/'):
                 return redirect(next_page)
-            # Si no, a la página de inicio.
+            
             return redirect(url_for('main.index'))
-            # ------------------------------
             
         flash('Usuario o contraseña incorrectos', 'error')
     
-    return render_template('login.html', form=form) # Pásalo al template
+    return render_template('login.html', form=form) 
 
 @main.route('/logout')
 @login_required
@@ -106,7 +122,6 @@ def checkout():
         event_id = request.args.get('event_id')
         quantity = request.args.get('quantity')
 
-    # Validaciones
     if not name or not event_id or not quantity:
         flash('Datos incompletos para el checkout.', 'error')
         return redirect(url_for('main.index'))
@@ -124,7 +139,6 @@ def checkout():
         flash('Evento no encontrado.', 'error')
         return redirect(url_for('main.index'))
         
-    # Verificar si hay suficientes tickets
     if event.available_tickets < quantity:
         flash(f'Lo sentimos, solo quedan {event.available_tickets} tickets disponibles para este evento.', 'error')
         return redirect(url_for('main.index'))
@@ -144,13 +158,11 @@ def pago_confirmado():
         flash('Error en la compra.', 'error')
         return redirect(url_for('main.index'))
         
-    # --- Descontar tickets ---
     if event.available_tickets < quantity:
         flash(f'Lo sentimos, la compra no pudo completarse. Solo quedaban {event.available_tickets} tickets.', 'error')
         return redirect(url_for('main.index'))
     
     event.available_tickets -= quantity
-    # -------------------------
 
     tx = str(uuid4())
     for _ in range(quantity):
@@ -165,7 +177,7 @@ def pago_confirmado():
                         user_id=current_user.id if current_user.is_authenticated else None)
         db.session.add(ticket)
         
-    db.session.commit() # Guarda los tickets Y la actualización de la cantidad de eventos
+    db.session.commit() 
     
     flash(f'Pago éxitoso por {payment_method}', 'success')
     return redirect(url_for('main.confirmacion_compra', transaction_id=tx))
@@ -207,20 +219,20 @@ def api_verificar_ticket():
 
 # --- Administración ---
 @main.route('/admin')
-@login_required
+@admin_required # <-- CAMBIADO DE @login_required
 def admin():
-    form = FlaskForm() # Crea el formulario
+    form = FlaskForm() 
     events = Event.query.all()
     tickets = Ticket.query.order_by(Ticket.id.desc()).all()
-    return render_template('admin.html', events=events, tickets=tickets, form=form) # PÁSALO
+    return render_template('admin.html', events=events, tickets=tickets, form=form)
 
 @main.route('/admin/add_event', methods=['POST'])
-@login_required
+@admin_required # <-- CAMBIADO DE @login_required
 def add_event():
     try:
         name = request.form.get('name')
-        price = float(request.form.get('price', 0)) # Default a 0 si está vacío
-        available_tickets = int(request.form.get('available_tickets', 100)) # Default a 100
+        price = float(request.form.get('price', 0)) 
+        available_tickets = int(request.form.get('available_tickets', 100))
         
         if not name:
             flash('El nombre del evento es requerido', 'error')
@@ -237,21 +249,16 @@ def add_event():
         
     return redirect(url_for('main.admin'))
 
-# --- NUEVA RUTA PARA ELIMINAR ---
 @main.route('/admin/delete_event/<int:event_id>', methods=['POST'])
-@login_required
+@admin_required # <-- CAMBIADO DE @login_required
 def delete_event(event_id):
+    # Usamos get_or_404 para que falle si el ID no existe
     event = Event.query.get_or_404(event_id)
     try:
-        # Primero, podrías querer verificar si hay tickets vendidos para este evento.
-        # Por ahora, simplemente lo eliminaremos.
-        # Nota: Si tienes tickets vendidos, esto podría fallar si tu DB no está
-        # configurada para eliminar en cascada. 
-        
-        # Opción más segura: Eliminar tickets primero
+        # Primero, eliminamos los tickets asociados a este evento
         Ticket.query.filter_by(event_id=event.id).delete()
         
-        # Ahora eliminar el evento
+        # Ahora eliminamos el evento
         db.session.delete(event)
         db.session.commit()
         flash(f'Evento "{event.name}" y todos sus tickets asociados fueron eliminados.', 'success')
