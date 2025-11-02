@@ -11,7 +11,6 @@ def crear_admin():
     # Esto le dice a 'db' a qué app de Flask pertenece.
     with app.app_context():
         # 2. Creamos todas las tablas (si no existen)
-        # ESTA LÍNEA CREA LA BASE DE DATOS
         db.create_all()
 
         username = 'admin'
@@ -36,5 +35,7 @@ if __name__ == '__main__':
     crear_admin()
 
     # Ponemos debug=True para ver errores en el navegador
+    # Render ignorará 'debug=True' en producción
     app.run(host='0.0.0.0', port=port, debug=True)
+
 
