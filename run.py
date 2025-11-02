@@ -37,5 +37,3 @@ if __name__ == '__main__':
     # Ponemos debug=True para ver errores en el navegador
     # Render ignorará 'debug=True' en producción
     app.run(host='0.0.0.0', port=port, debug=True)
-
-
